@@ -47,8 +47,10 @@ const GROUPS_DATA = [
       { id: "g1_m5_s2d_h1", label: "M5 S2D/D2S — H1/M30 mit", points: 10 },
       { id: "g1_hh_ll_full", label: "HH Supply / LL Demand — Full mit", points: 7 },
       { id: "g1_m15_rz_full", label: "M15 Reaction Zone — Full mit", points: 5 },
+      { id: "g1_htf_coc", label: "HTF COC (no mitigation)", points: 10 },
     ],
     mods: [
+      { id: "g1_mod_ob_mit", label: "Orderbook mitigation (reversal inval)", points: 3 },
       { id: "g1_mod_idm_high", label: "POI created by prior IDM high", points: 3 },
       { id: "g1_mod_two_poi", label: "Two POI types coinciding at same level", points: 3 },
       { id: "g1_mod_ahal", label: "AH/AL at extreme POI", points: -5, risk: true },
