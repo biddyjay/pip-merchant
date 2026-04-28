@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Pip Merchant — Confluence Scorer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #020817; font-family: 'Courier New', monospace; overflow-x: hidden; }
+  ::-webkit-scrollbar { width: 3px; height: 3px; }
+  ::-webkit-scrollbar-track { background: #0F172A; }
+  ::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const PAIR_CONFIG = {
+  eu: { pair: "EUR/USD", label: "EU", color: "#3B82F6" },
+  gu: { pair: "GBP/USD", label: "GU", color: "#D4A017" }
+}
+
+const GROUPS_DATA = [
+  {
+    id: 1, label: "POI", full: "POI Type", subtitle: "Highest one counts", max: 26,
+    items: [
+      { id: "g1_m15_ext_full",  label: "M15 Extreme — Full mit",        points: 20 },
+      { id: "g1_m15_ext_h1",    label: "M15 Extreme — H1/M30 mit",      points: 15 },
+      { id: "g1_m15_ext_block", label: "M15 Extreme — Block only",       points: 12 },
+      { id: "g1_m15_dec_full",  label: "M15 Decisional — Full mit",      points: 15 },
+      { id: "g1_m15_dec_block", label: "M15 Decisional — Block only",    points: 10 },
+      { id: "g1_m15_rz_full",   label: "M15 Reaction Zone — Full mit",   points: 5  },
+      { id: "g1_m5_s2d_full",   label: "M5 S2D/D2S — Full mit",         points: 15 },
+      { id: "g1_m5_s2d_h1",     label: "M5 S2D/D2S — H1/M30 mit",      points: 10 },
+      { id: "g1_hh_ll_full",    label: "HH Supply / LL Demand — Full mit", points: 7 },
+      { id: "g1_htf_coc",       label: "HTF COC (no mitigation)",        points: 10 },
+    ],
+    advancedItems: [
+      { id: "g1_h1h4_ext_full",  label: "H1/H4 Extreme — Full mit",         points: 20 },
+      { id: "g1_h1h4_ext_block", label: "H1/H4 Extreme — Block only",        points: 15 },
+      { id: "g1_h1h4_dec_full",  label: "H1/H4 Decisional — Full mit",       points: 20 },
+      { id: "g1_h1h4_dec_block", label: "H1/H4 Decisional — Block only",     points: 12 },
+      { id: "g1_h1h4_rz_full",   label: "H1/H4 Reaction Zone — Full mit",    points: 8  },
+      { id: "g1_h1h4_rz_block",  label: "H1/H4 Reaction Zone — Block only",  points: 5  },
+      { id: "g1_s2d_full",       label: "HTF S2D/D2S (M15+) — Full mit",     points: 20 },
+      { id: "g1_s2d_h1",         label: "HTF S2D/D2S — H1/M30 mit",         points: 12 },
+      { id: "g1_s2d_block",      label: "HTF S2D/D2S — Block only",          points: 12 },
+    ],
+    mods: [
+      { id: "g1_mod_ob_mit", label: "Orderbook mitigation (reversal inval)", points: 3 },
+      { id: "g1_mod_idm_high", label: "POI created by prior IDM high", points: 3 },
+      { id: "g1_mod_two_poi", label: "Two POI types coinciding at same level", points: 3 },
+      { id: "g1_mod_ahal", label: "AH/AL at extreme POI", points: -10, risk: true },
+      { id: "g1_mod_liq_5", label: "Liq pool within 10 pips of POI", points: -10, risk: true },
+      { id: "g1_mod_imbalance", label: "Price leaves imbalance / does not tap M15 POI fully", points: -10, risk: true },
+      { id: "g1_mod_weak_zone", label: "Weak zone — no structural origin", points: -10, risk: true },
+      { id: "g1_mod_no_mit", label: "No mitigation (IDM only, POI not tapped)", points: -10, risk: true },
+      { id: "g1_mod_block_path", label: "Unmitigated block in path to target", points: -10, risk: true },
+      { id: "g1_mod_nonstr_path", label: "Non-structural supply/demand in path", points: -10, risk: true },
+      { id: "g1_mod_consumed2", label: "Consumed POI — 2nd touch", points: -10, risk: true },
+      { id: "g1_mod_consumed3", label: "Consumed POI — 3rd touch", points: -10, risk: true },
+    ]
+  },
+  {
+    id: 2, label: "IDM", full: "IDM Type", subtitle: "Highest one counts", max: 27,
+    items: [
+      { id: "g2_major_idm", label: "Major IDM (H1/H4 structural break)", points: 15 },
+      { id: "g2_ext_med", label: "External med IDM", points: 15 },
+      { id: "g2_bt_idm", label: "BT IDM (M15+)", points: 12 },
+      { id: "g2_int_med", label: "Internal med IDM", points: 10 },
+      { id: "g2_asia_mid", label: "Asia mid as IDM (London KZ ±60 mins)", points: 7 },
+      { id: "g2_minor", label: "Minor IDM", points: 5 },
+    ],
+    mods: [
+      { id: "g2_mod_extreme", label: "IDM at/near structural extreme", points: 3 },
+      { id: "g2_mod_clean", label: "Clean IDM candle (sharp wick + recovery)", points: 3 },
+      { id: "g2_mod_2nd", label: "Additional IDM in sequence (2nd)", points: 2 },
+      { id: "g2_mod_3rd", label: "Additional IDM in sequence (3rd+)", points: 3 },
+      { id: "g2_mod_multi", label: "Simultaneous multi-level sweep", points: 3 },
+      { id: "g2_mod_mid_range", label: "IDM in middle of range, no nearby POI", points: -10, risk: true },
+      { id: "g2_mod_reinducement", label: "Re-inducement risk — IDM without POI mitigation", points: -10, risk: true },
+    ]
+  },
+  {
+    id: 3, label: "Timing", full: "Timing", subtitle: "One tier applies", max: 15,
+    items: [
+      { id: "g3_n1", label: "N1 — Exact KZ window", points: 15 },
+      { id: "g3_n2", label: "N2 — KZ ±30 mins", points: 10 },
+      { id: "g3_n3", label: "N3 — KZ ±60 mins", points: 5 },
+      { id: "g3_outside", label: "Outside KZ (beyond ±60 mins)", points: -10, risk: true },
+      { id: "g3_post_london", label: "Post-London close (20:00 UTC+4+)", points: -10, risk: true },
+      { id: "g3_news", label: "News within 30 mins", points: -30, risk: true },
+      { id: "g3_prefrank", label: "Pre-Frankfurt entry (before 11:00 UTC+4)", points: -15, risk: true },
+    ],
+    mods: []
+  },
+  {
+    id: 4, label: "Entry", full: "Entry Model", subtitle: "Highest one + stackable bonuses", max: 35,
+    items: [
+      { id: "g4_smt_ext", label: "SMT cont mit — extreme", points: 15 },
+      { id: "g4_smt_ltfc_dec", label: "SMT cont mit + LTFC — decisional", points: 15 },
+      { id: "g4_smt_ltfc_htf", label: "SMT cont mit + LTFC — HTF", points: 15 },
+      { id: "g4_m5_2lp", label: "M5 2LP", points: 15 },
+      { id: "g4_2lp_minor", label: "2LP + minor IDM", points: 14 },
+      { id: "g4_bt_var1", label: "BT IDM Var 1 (with HH/LL)", points: 14 },
+      { id: "g4_s2d_m5", label: "S2D/D2S M5 immediate", points: 12 },
+      { id: "g4_bt_ltfc", label: "BT IDM + LTFC", points: 12 },
+      { id: "g4_smt_bt", label: "SMT BT IDM Mit", points: 12 },
+      { id: "g4_bt_var2", label: "BT IDM Var 2 (BIM)", points: 11 },
+      { id: "g4_smt_idm_ltfc", label: "SMT IDM LTFC (pre-break)", points: 8 },
+      { id: "g4_m1_2lp", label: "M1 2LP", points: 7 },
+      { id: "g4_ibos", label: "iBOS entry", points: 5 },
+    ],
+    mods: [
+      { id: "g4_mod_multi", label: "Multi-model convergence (2+ models)", points: 8 },
+      { id: "g4_mod_bim", label: "BIM cycle present", points: 8 },
+      { id: "g4_mod_div", label: "EU/GU divergence", points: 7 },
+      { id: "g4_mod_liq_bu", label: "Liq BU toward target", points: 7 },
+      { id: "g4_mod_clean_path", label: "Clean 1:3 path (no obstruction)", points: 5 },
+      { id: "g4_mod_tp_align", label: "1:3 TP aligns with M15 structural level", points: 4 },
+      { id: "g4_mod_zone_opt", label: "Zone size optimal (3-6 pips)", points: 3 },
+      { id: "g4_mod_str_path", label: "Key structural POI in path (led to HH/LL)", points: -10, risk: true },
+      { id: "g4_mod_inv_path", label: "Invalidation zone in path", points: -10, risk: true },
+      { id: "g4_mod_inv_tapped", label: "Invalidation tapped", points: -10, risk: true },
+      { id: "g4_mod_m1_only", label: "M1 entry only (no M5)", points: -10, risk: true },
+      { id: "g4_mod_zone_large", label: "Zone size large (>8 pips)", points: -10, risk: true },
+      { id: "g4_mod_imb", label: "Imbalance above/below 1st leg", points: -10, risk: true },
+      { id: "g4_mod_prolonged", label: "Prolonged retracement >30 mins", points: -10, risk: true },
+    ]
+  }
+]
+
+function getScoreInfo(score) {
+  if (score >= 80) return { label: "PHONE CALL", emoji: "📞", color: "#10B981", bg: "#022c22", border: "#10B981" }
+  if (score >= 60) return { label: "TRADE ALERT", emoji: "✅", color: "#3B82F6", bg: "#0c1a2e", border: "#3B82F6" }
+  if (score >= 40) return { label: "MONITOR", emoji: "👁", color: "#F59E0B", bg: "#1c0d00", border: "#F59E0B" }
+  return { label: "NO ALERT", emoji: "❌", color: "#6B7280", bg: "#0a0a0a", border: "#334155" }
+}
+
+function calcScore(selMain, selMods) {
+  let total = 0
+  GROUPS_DATA.forEach(g => {
+    const selId = selMain[g.id]
+    if (selId) { const item = g.items.find(i => i.id === selId); if (item) total += item.points }
+    g.mods.forEach(m => { if (selMods[m.id]) total += m.points })
+  })
+  return total
+}
+
+function getCheckedConfs(selMain, selMods) {
+  const list = []
+  GROUPS_DATA.forEach(g => {
+    const selId = selMain[g.id]
+    if (selId) { const item = g.items.find(i => i.id === selId); if (item) list.push(`${item.label} (${item.points > 0 ? '+' : ''}${item.points})`) }
+    g.mods.forEach(m => { if (selMods[m.id]) list.push(`${m.label} (${m.points > 0 ? '+' : ''}${m.points})`) })
+  })
+  return list
+}
+
+function getEntryModel(selMain) {
+  const selId = selMain[4]
+  if (!selId) return "—"
+  const item = GROUPS_DATA[3].items.find(i => i.id === selId)
+  return item ? item.label : "—"
+}
+
+function exportCSV(trades) {
+  const headers = ["Date (UTC)", "Pair", "Direction", "Entry Model", "Score", "Confluences", "Risk %", "R:R", "Outcome", "Notes"]
+  const rows = trades.map(t => [
+    new Date(t.time).toISOString().replace("T", " ").slice(0, 16),
+    t.pair,
+    t.direction,
+    t.entryModel || "—",
+    t.score,
+    `"${(t.confs || []).join(" | ")}"`,
+    t.risk || "—",
+    t.rr,
+    t.outcome,
+    `"${(t.notes || "").replace(/"/g, "'")}"`
+  ])
+  const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n")
+  const blob = new Blob([csv], { type: "text/csv" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `pip_merchant_journal_${new Date().toISOString().slice(0,10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function AllModsView({ type, cs, color, onToggleMod }) {
+  const allMods = GROUPS_DATA.flatMap(g => (g.mods||[]).map(m => ({ ...m, groupLabel: g.full })))
+  const filtered = type === "bonus" ? allMods.filter(m => m.points > 0) : allMods.filter(m => m.points < 0)
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3, padding: "4px 0" }}>
+      {filtered.map(mod => {
+        const on = cs.selMods[mod.id]
+        const mc = type === "risk" ? "#ef4444" : color
+        return (
+          <div key={mod.id} onClick={() => onToggleMod(mod.id)}
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", borderRadius: 6, cursor: "pointer", background: on ? `${mc}15` : "#0c1524", border: `1px solid ${on ? mc : "#1E293B"}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+              <div style={{ width: 12, height: 12, borderRadius: 6, flexShrink: 0, border: `2px solid ${on ? mc : "#334155"}`, background: on ? mc : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {on && <div style={{ width: 4, height: 4, background: "#fff", borderRadius: 2 }} />}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <span style={{ fontSize: 10.5, color: on ? "#f1f5f9" : "#cbd5e1" }}>{mod.label}</span>
+                <span style={{ fontSize: 8, color: "#334155", marginLeft: 6 }}>{mod.groupLabel}</span>
+              </div>
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 700, color: mod.points > 0 ? "#34d399" : "#f87171", minWidth: 28, textAlign: "right", flexShrink: 0, marginLeft: 6 }}>
+              {mod.points > 0 ? "+" : ""}{mod.points}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function SummaryView({ cs, color, score }) {
+  const allItems = GROUPS_DATA.flatMap(g => {
+    const main = [...g.items, ...(g.advancedItems || [])]
+    const mods = g.mods || []
+    return [...main, ...mods]
+  })
+
+  const positives = []
+  const negatives = []
+
+  GROUPS_DATA.forEach(g => {
+    const selId = cs.selMain[g.id]
+    if (selId) {
+      const item = [...g.items, ...(g.advancedItems || [])].find(i => i.id === selId)
+      if (item) {
+        if (item.points >= 0) positives.push({ ...item, group: g.label })
+        else negatives.push({ ...item, group: g.label })
+      }
+    }
+    ;(g.mods || []).forEach(m => {
+      if (cs.selMods[m.id]) {
+        if (m.points >= 0) positives.push({ ...m, group: g.label })
+        else negatives.push({ ...m, group: g.label })
+      }
+    })
+  })
+
+  const si = score >= 80 ? { label: "PHONE CALL", color: "#10B981" }
+    : score >= 60 ? { label: "TRADE ALERT", color: "#3B82F6" }
+    : score >= 40 ? { label: "MONITOR", color: "#F59E0B" }
+    : { label: "NO ALERT", color: "#6B7280" }
+
+  if (positives.length === 0 && negatives.length === 0) {
+    return (
+      <div style={{ textAlign: "center", color: "#334155", padding: "40px 0", fontSize: 11 }}>
+        No confluences selected yet
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ background: "#0F172A", border: `2px solid ${si.color}`, borderRadius: 10, padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: 9, color: "#475569", textTransform: "uppercase", letterSpacing: "0.1em" }}>Total Score</div>
+          <div style={{ fontSize: 38, fontWeight: 900, color: si.color, lineHeight: 1 }}>{score}</div>
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 800, color: si.color, background: `${si.color}22`, padding: "6px 12px", borderRadius: 6 }}>{si.label}</div>
+      </div>
+
+      {positives.length > 0 && (
+        <div style={{ background: "#0c1524", border: "1px solid #1E293B", borderRadius: 10, overflow: "hidden" }}>
+          <div style={{ padding: "7px 12px", background: "#10B98118", borderBottom: "1px solid #1E293B" }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: "#10B981", textTransform: "uppercase", letterSpacing: "0.1em" }}>For ({positives.length})</span>
+          </div>
+          <div style={{ padding: "6px 8px", display: "flex", flexDirection: "column", gap: 3 }}>
+            {positives.map((item, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 8px" }}>
+                <div>
+                  <span style={{ fontSize: 10, color: "#cbd5e1" }}>{item.label}</span>
+                  <span style={{ fontSize: 8, color: "#334155", marginLeft: 6 }}>{item.group}</span>
+                </div>
+                <span style={{ fontSize: 10, fontWeight: 700, color: "#34d399", flexShrink: 0, marginLeft: 8 }}>+{item.points}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {negatives.length > 0 && (
+        <div style={{ background: "#0c1524", border: "1px solid #1E293B", borderRadius: 10, overflow: "hidden" }}>
+          <div style={{ padding: "7px 12px", background: "#EF444418", borderBottom: "1px solid #1E293B" }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: "#EF4444", textTransform: "uppercase", letterSpacing: "0.1em" }}>Against ({negatives.length})</span>
+          </div>
+          <div style={{ padding: "6px 8px", display: "flex", flexDirection: "column", gap: 3 }}>
+            {negatives.map((item, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 8px" }}>
+                <div>
+                  <span style={{ fontSize: 10, color: "#cbd5e1" }}>{item.label}</span>
+                  <span style={{ fontSize: 8, color: "#334155", marginLeft: 6 }}>{item.group}</span>
+                </div>
+                <span style={{ fontSize: 10, fontWeight: 700, color: "#f87171", flexShrink: 0, marginLeft: 8 }}>{item.points}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ModifiersPanel({ mods, selMods, color, onToggle }) {
+  const [show, setShow] = React.useState(false)
+  const bonuses = mods.filter(m => m.points > 0)
+  const risks   = mods.filter(m => m.points < 0)
+  const anyOn   = mods.some(m => selMods[m.id])
+  const bonusPts = bonuses.reduce((a, m) => selMods[m.id] ? a + m.points : a, 0)
+  const riskPts  = risks.reduce((a, m)   => selMods[m.id] ? a + m.points : a, 0)
+  const sumLabel = anyOn ? ` (${bonusPts > 0 ? "+"+bonusPts : ""}${riskPts < 0 ? " "+riskPts : ""})` : ""
+
+  const renderMod = (mod) => {
+    const on = selMods[mod.id]
+    const mc = mod.risk ? "#ef4444" : color
+    return (
+      <div key={mod.id} onClick={() => onToggle(mod.id)}
+        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 8px", borderRadius: 5, cursor: "pointer", background: on ? `${mc}15` : "transparent", border: `1px solid ${on ? mc : "transparent"}`, marginBottom: 2 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+          <div style={{ width: 12, height: 12, borderRadius: 6, flexShrink: 0, border: `2px solid ${on ? mc : "#334155"}`, background: on ? mc : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {on && <div style={{ width: 4, height: 4, background: "#fff", borderRadius: 2 }} />}
+          </div>
+          <span style={{ fontSize: 10, color: on ? "#f1f5f9" : "#64748b", lineHeight: 1.3 }}>{mod.label}</span>
+        </div>
+        <span style={{ fontSize: 10, fontWeight: 700, color: mod.points > 0 ? "#34d399" : "#f87171", minWidth: 26, textAlign: "right", flexShrink: 0, marginLeft: 4 }}>
+          {mod.points > 0 ? "+" : ""}{mod.points}
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ marginTop: 4 }}>
+      <div style={{ height: 1, background: "#1E293B", marginBottom: 4 }} />
+      <button onClick={() => setShow(!show)}
+        style={{ width: "100%", padding: "5px 8px", background: anyOn ? "#1E293B44" : "transparent", border: "1px dashed #334155", borderRadius: 5, color: anyOn ? "#94a3b8" : "#475569", cursor: "pointer", fontSize: 9.5, fontFamily: "inherit", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span>Modifiers{sumLabel}</span>
+        <span style={{ fontSize: 9 }}>{show ? "▲ hide" : "▼ show"}</span>
+      </button>
+      {show && (
+        <div style={{ marginTop: 4 }}>
+          {bonuses.length > 0 && (
+            <div style={{ marginBottom: 6 }}>
+              <div style={{ fontSize: 8, color: "#34d399", padding: "2px 4px", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 2 }}>Bonuses</div>
+              {bonuses.map(renderMod)}
+            </div>
+          )}
+          {risks.length > 0 && (
+            <div>
+              <div style={{ fontSize: 8, color: "#f87171", padding: "2px 4px", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 2 }}>Risks</div>
+              {risks.map(renderMod)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AdvancedItems({ items, groupId, selectedMain, color, onToggle }) {
+  const hasSelection = items.some(i => selectedMain[groupId] === i.id)
+  const [show, setShow] = useState(hasSelection)
+  return (
+    <div style={{ marginTop: 4 }}>
+      <button onClick={() => setShow(!show)}
+        style={{ width: "100%", padding: "5px 10px", background: show ? "#1E293B22" : "transparent", border: "1px dashed #334155", borderRadius: 5, color: show ? "#94a3b8" : "#475569", cursor: "pointer", fontSize: 9.5, fontFamily: "inherit", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span>H1/H4 · HTF S2D/D2S (rare)</span>
+        <span style={{ fontSize: 9 }}>{show ? "▲ hide" : "▼ show"}</span>
+      </button>
+      {show && (
+        <div style={{ marginTop: 3 }}>
+          {items.map(item => {
+            const isSelected = selectedMain[groupId] === item.id
+            return (
+              <div key={item.id} onClick={() => onToggle(groupId, item.id)}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", borderRadius: 6, cursor: "pointer", background: isSelected ? `${color}22` : "transparent", border: `1px solid ${isSelected ? color : "transparent"}`, marginTop: 2, transition: "all 0.15s" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${isSelected ? color : "#334155"}`, background: isSelected ? color : "transparent", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {isSelected && <div style={{ width: 6, height: 6, background: "#fff", borderRadius: 1 }} />}
+                  </div>
+                  <span style={{ fontSize: 11, color: isSelected ? "#F1F5F9" : "#94a3b8" }}>{item.label}</span>
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 700, color: item.points > 0 ? "#34D399" : "#F87171", minWidth: 28, textAlign: "right" }}>
+                  {item.points > 0 ? "+" : ""}{item.points}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function GroupPanel({ g, color, selMain, selMods, onToggleMain, onToggleMod }) {
+  const selId = selMain[g.id]
+  const mainPts = selId ? (g.items.find(i => i.id === selId)?.points || 0) : 0
+  const modPts = g.mods.reduce((a, m) => selMods[m.id] ? a + m.points : a, 0)
+
+  return (
+    <div style={{ background: "#0c1524", border: "1px solid #1E293B", borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ padding: "8px 10px", background: "#1a2540", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#e2e8f0" }}>{g.full}</div>
+          <div style={{ fontSize: 9, color: "#475569", marginTop: 1 }}>{g.subtitle} · max +{g.max}</div>
+        </div>
+        <div style={{ fontSize: 20, fontWeight: 900, color: (mainPts+modPts) > 0 ? "#34d399" : (mainPts+modPts) < 0 ? "#f87171" : "#475569" }}>
+          {(mainPts+modPts) > 0 ? "+" : ""}{mainPts+modPts}
+        </div>
+      </div>
+
+      <div style={{ padding: "6px 8px", display: "flex", flexDirection: "column", gap: 2 }}>
+        {g.items.map(item => {
+          const sel = selMain[g.id] === item.id
+          return (
+            <div key={item.id} onClick={() => onToggleMain(g.id, item.id)}
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 8px", borderRadius: 5, cursor: "pointer", background: sel ? `${color}1a` : "transparent", border: `1px solid ${sel ? color : "transparent"}` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+                <div style={{ width: 12, height: 12, borderRadius: 2, flexShrink: 0, border: `2px solid ${sel ? color : "#334155"}`, background: sel ? color : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {sel && <div style={{ width: 4, height: 4, background: "#fff", borderRadius: 1 }} />}
+                </div>
+                <span style={{ fontSize: 10, color: sel ? "#f1f5f9" : "#64748b", lineHeight: 1.3 }}>{item.label}</span>
+              </div>
+              <span style={{ fontSize: 10, fontWeight: 700, color: item.points > 0 ? "#34d399" : "#f87171", minWidth: 26, textAlign: "right", flexShrink: 0, marginLeft: 4 }}>
+                {item.points > 0 ? "+" : ""}{item.points}
+              </span>
+            </div>
+          )
+        })}
+
+        {g.advancedItems && (
+            <AdvancedItems
+              items={g.advancedItems}
+              groupId={g.id}
+              selectedMain={selMain}
+              color={color}
+              onToggle={onToggleMain}
+            />
+          )}
+
+  
+      </div>
+    </div>
+  )
+}
+
+function LogModal({ pair, pairColor, score, confs, entryModel, onClose, onSave }) {
+  const [direction, setDirection] = useState("Buy")
+  const [outcome, setOutcome] = useState("")
+  const [risk, setRisk] = useState("0.5%")
+  const [rrMode, setRrMode] = useState("full")  // "full" = 1:3 only, "split" = 50% 1:3 + 50% custom
+  const [customRr, setCustomRr] = useState("1:5")
+  const now = new Date().toLocaleString("en-GB", { timeZone: "UTC", hour12: false })
+
+  const rrDisplay = rrMode === "full" ? "1:3" : rrMode === "split" ? `50% 1:3 + 50% ${customRr}` : rrMode === "loss" ? "-1R" : "0R"
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#000b", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16, overflowY: "auto" }}>
+      <div style={{ background: "#0F172A", border: `1px solid ${pairColor}`, borderRadius: 12, padding: 18, width: "100%", maxWidth: 400 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#f1f5f9" }}>Log Trade — {pair}</div>
+            <div style={{ fontSize: 9, color: "#475569" }}>{now} UTC</div>
+            <div style={{ fontSize: 9, color: "#64748b", marginTop: 2 }}>Entry: {entryModel}</div>
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: pairColor }}>{score}</div>
+        </div>
+
+        {/* Direction */}
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 9, color: "#94a3b8", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.08em" }}>Direction</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[["Buy", "#10B981", "▲ BUY"], ["Sell", "#EF4444", "▼ SELL"]].map(([d, c, l]) => (
+              <button key={d} onClick={() => setDirection(d)}
+                style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: `1px solid ${direction === d ? c : "#334155"}`, background: direction === d ? `${c}22` : "transparent", color: direction === d ? c : "#475569", cursor: "pointer", fontSize: 11, fontWeight: 700, fontFamily: "inherit" }}>{l}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Risk */}
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 9, color: "#94a3b8", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.08em" }}>Risk</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[["0.5%", "#F59E0B"], ["1%", "#EF4444"]].map(([r, c]) => (
+              <button key={r} onClick={() => setRisk(r)}
+                style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: `1px solid ${risk === r ? c : "#334155"}`, background: risk === r ? `${c}22` : "transparent", color: risk === r ? c : "#475569", cursor: "pointer", fontSize: 11, fontWeight: 700, fontFamily: "inherit" }}>{r}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* R:R */}
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 9, color: "#94a3b8", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.08em" }}>R:R Result</div>
+          <div style={{ display: "flex", gap: 5, marginBottom: 6, flexWrap: "wrap" }}>
+            {[["loss", "-1R", "#EF4444"], ["be", "0R (BE)", "#F59E0B"], ["full", "1:3", pairColor], ["split", "50/50", pairColor]].map(([m, l, c]) => (
+              <button key={m} onClick={() => setRrMode(m)}
+                style={{ flex: 1, minWidth: 60, padding: "7px 4px", borderRadius: 6, border: `1px solid ${rrMode === m ? c : "#334155"}`, background: rrMode === m ? `${c}22` : "transparent", color: rrMode === m ? c : "#475569", cursor: "pointer", fontSize: 10, fontWeight: 700, fontFamily: "inherit" }}>{l}</button>
+            ))}
+          </div>
+          {rrMode === "split" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "#1E293B", borderRadius: 6 }}>
+              <span style={{ fontSize: 10, color: "#64748b" }}>50% at 1:3  +  50% at</span>
+              <select value={customRr} onChange={e => setCustomRr(e.target.value)}
+                style={{ background: "#0F172A", border: `1px solid ${pairColor}`, color: pairColor, borderRadius: 4, padding: "3px 6px", fontSize: 11, fontFamily: "inherit", fontWeight: 700, cursor: "pointer" }}>
+                {["1:4", "1:5", "1:6", "1:7", "1:8", "1:10"].map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+          )}
+          {rrMode === "full" && (
+            <div style={{ padding: "5px 10px", background: "#1E293B", borderRadius: 6, fontSize: 10, color: "#64748b" }}>
+              Full position closed at <span style={{ color: pairColor, fontWeight: 700 }}>1:3</span>
+            </div>
+          )}
+          {rrMode === "loss" && (
+            <div style={{ padding: "5px 10px", background: "#1E293B", borderRadius: 6, fontSize: 10, color: "#EF4444" }}>
+              -1R loss
+            </div>
+          )}
+          {rrMode === "be" && (
+            <div style={{ padding: "5px 10px", background: "#1E293B", borderRadius: 6, fontSize: 10, color: "#F59E0B" }}>
+              Breakeven — 0R
+            </div>
+          )}
+        </div>
+
+        {/* Outcome */}
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 9, color: "#94a3b8", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.08em" }}>Outcome</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[["Win", "#10B981", "✓ WIN"], ["BE", "#F59E0B", "↔ BE"], ["Loss", "#EF4444", "✗ LOSS"]].map(([o, c, l]) => (
+              <button key={o} onClick={() => setOutcome(o)}
+                style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: `1px solid ${outcome === o ? c : "#334155"}`, background: outcome === o ? `${c}22` : "transparent", color: outcome === o ? c : "#475569", cursor: "pointer", fontSize: 11, fontWeight: 700, fontFamily: "inherit" }}>{l}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Notes */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 9, color: "#94a3b8", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.08em" }}>Notes (optional)</div>
+          <textarea placeholder="e.g. GU divergence present, price stalled at BT level..."
+            style={{ width: "100%", background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: "#94a3b8", padding: "7px 10px", fontSize: 10, fontFamily: "inherit", resize: "none", height: 55, outline: "none" }}
+            id="trade-notes" />
+        </div>
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "9px 0", background: "transparent", border: "1px solid #334155", color: "#475569", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>Cancel</button>
+          <button onClick={() => {
+            if (!outcome) { alert("Select an outcome first"); return }
+            const notes = document.getElementById("trade-notes").value
+            onSave({ pair, direction, score, risk, rr: rrDisplay,
+              rValue: rrMode === "loss" ? -1 : rrMode === "be" ? 0 : rrMode === "full" ? 3 : (3/2 + parseFloat(customRr.split(":")[1])/2),
+              notes, outcome, confs, entryModel, confCount: confs.length, time: new Date().toISOString() })
+          }} style={{ flex: 2, padding: "9px 0", background: pairColor, border: "none", color: "#fff", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontSize: 11, fontWeight: 700 }}>Save Trade</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+function JournalView({ trades, onClose, onDelete }) {
+  const wins = trades.filter(t => t.outcome === "Win").length
+  const losses = trades.filter(t => t.outcome === "Loss").length
+  const bes = trades.filter(t => t.outcome === "BE").length
+  const decided = trades.filter(t => t.outcome !== "BE").length
+  const winRate = decided ? Math.round(wins / decided * 100) : 0
+  const totalR = trades.reduce((sum, t) => sum + (t.rValue || 0), 0)
+
+  // Entry model stats
+  const modelCounts = {}
+  trades.forEach(t => {
+    const m = t.entryModel || "—"
+    if (!modelCounts[m]) modelCounts[m] = { total: 0, wins: 0, losses: 0, bes: 0 }
+    modelCounts[m].total++
+    if (t.outcome === "Win") modelCounts[m].wins++
+    else if (t.outcome === "Loss") modelCounts[m].losses++
+    else modelCounts[m].bes++
+  })
+  const modelRows = Object.entries(modelCounts).sort((a, b) => b[1].total - a[1].total)
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#020817", zIndex: 200, overflowY: "auto" }}>
+      <div style={{ maxWidth: 520, margin: "0 auto", padding: 12 }}>
+
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, padding: "10px 0", borderBottom: "1px solid #1E293B" }}>
+          <div>
+            <div style={{ fontSize: 8, color: "#334155", textTransform: "uppercase", letterSpacing: "0.12em" }}>Pip Merchant</div>
+            <div style={{ fontSize: 16, fontWeight: 900, color: "#f1f5f9" }}>Trade Journal</div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => exportCSV(trades)}
+              style={{ background: "#1E293B", border: "1px solid #334155", color: "#94a3b8", padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontSize: 10 }}>
+              ↓ Export CSV
+            </button>
+            <button onClick={onClose}
+              style={{ background: "transparent", border: "1px solid #334155", color: "#475569", padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontSize: 10 }}>
+              ← Back
+            </button>
+          </div>
+        </div>
+
+        {/* Stats row */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+          {[
+            { label: "Trades", value: trades.length, color: "#64748B" },
+            { label: "Win Rate", value: `${winRate}%`, color: "#10B981" },
+            { label: "Total R", value: (totalR >= 0 ? "+" : "") + totalR.toFixed(1) + "R", color: totalR >= 0 ? "#10B981" : "#EF4444" },
+            { label: "Wins", value: wins, color: "#10B981" },
+            { label: "BE", value: bes, color: "#F59E0B" },
+            { label: "Losses", value: losses, color: "#EF4444" },
+          ].map(s => (
+            <div key={s.label} style={{ flex: 1, background: "#0F172A", border: "1px solid #1E293B", borderRadius: 8, padding: "8px 4px", textAlign: "center" }}>
+              <div style={{ fontSize: 16, fontWeight: 900, color: s.color }}>{s.value}</div>
+              <div style={{ fontSize: 8, color: "#475569", marginTop: 1 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Entry model breakdown */}
+        {modelRows.length > 0 && (
+          <div style={{ background: "#0F172A", border: "1px solid #1E293B", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+            <div style={{ fontSize: 9, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8, fontWeight: 700 }}>Entry Model Breakdown</div>
+            {modelRows.map(([model, s]) => (
+              <div key={model} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid #1E293B" }}>
+                <div style={{ fontSize: 9.5, color: "#94a3b8", flex: 1, paddingRight: 8 }}>{model}</div>
+                <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                  <span style={{ fontSize: 9, color: "#64748b" }}>{s.total}x</span>
+                  <span style={{ fontSize: 9, color: "#10B981" }}>{s.wins}W</span>
+                  <span style={{ fontSize: 9, color: "#F59E0B" }}>{s.bes}BE</span>
+                  <span style={{ fontSize: 9, color: "#EF4444" }}>{s.losses}L</span>
+                  <span style={{ fontSize: 9, color: "#3B82F6", minWidth: 28, textAlign: "right" }}>
+                    {s.total - s.bes > 0 ? Math.round(s.wins / (s.total - s.bes) * 100) : 0}%
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {trades.length === 0 && (
+          <div style={{ textAlign: "center", color: "#334155", padding: "40px 0", fontSize: 12 }}>No trades logged yet</div>
+        )}
+
+        {/* Trade list */}
+        {[...trades].reverse().map((t, i) => {
+          const outcomeColor = t.outcome === "Win" ? "#10B981" : t.outcome === "BE" ? "#F59E0B" : "#EF4444"
+          const pairColor = t.pair === "EUR/USD" ? "#3B82F6" : "#D4A017"
+          const si = getScoreInfo(t.score)
+          return (
+            <div key={i} style={{ background: "#0F172A", border: "1px solid #1E293B", borderRadius: 10, padding: 12, marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                <div>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: pairColor }}>{t.pair}</span>
+                  <span style={{ fontSize: 10, color: t.direction === "Buy" ? "#10B981" : "#EF4444", marginLeft: 8, fontWeight: 700 }}>{t.direction === "Buy" ? "▲" : "▼"} {t.direction}</span>
+                  <span style={{ fontSize: 9, color: "#475569", marginLeft: 8 }}>{t.rr}</span>
+                  <span style={{ fontSize: 9, color: t.risk === "1%" ? "#EF4444" : "#F59E0B", marginLeft: 8, fontWeight: 700 }}>{t.risk || "—"}</span>
+                  <div style={{ fontSize: 8.5, color: "#94a3b8", marginTop: 2 }}>
+                    {t.entryModel || "—"} · {t.confCount || 0} confluences · {t.risk || "—"} risk
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span style={{ fontSize: 18, fontWeight: 900, color: si.color }}>{t.score}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: outcomeColor, background: `${outcomeColor}22`, padding: "2px 8px", borderRadius: 4 }}>{t.outcome}</span>
+                </div>
+              </div>
+              <div style={{ fontSize: 8, color: "#475569", marginBottom: 6 }}>{new Date(t.time).toLocaleString("en-GB", { timeZone: "UTC" })} UTC</div>
+              {t.confs && t.confs.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginBottom: 5 }}>
+                  {t.confs.map((c, ci) => (
+                    <span key={ci} style={{ fontSize: 8, background: "#1a2540", color: "#94a3b8", padding: "2px 5px", borderRadius: 3 }}>{c}</span>
+                  ))}
+                </div>
+              )}
+              {t.notes && <div style={{ fontSize: 9, color: "#475569", fontStyle: "italic", marginBottom: 4 }}>{t.notes}</div>}
+              <button onClick={() => { if(confirm('Delete this trade?')) onDelete(trades.length - 1 - i) }}
+                style={{ background: "transparent", border: "1px solid #EF444466", color: "#EF4444", cursor: "pointer", fontSize: 9, fontFamily: "inherit", padding: "3px 10px", borderRadius: 4, marginTop: 6 }}>✕ Delete</button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function App() {
+  const [activePair, setActivePair] = useState("eu")
+  const [activeGroup, setActiveGroup] = useState(1)
+  const [showLog, setShowLog] = useState(null)
+  const [showJournal, setShowJournal] = useState(false)
+
+  const [state, setState] = useState({
+    eu: { selMain: {}, selMods: {} },
+    gu: { selMain: {}, selMods: {} }
+  })
+
+  const [trades, setTrades] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("pm_trades") || "[]") } catch { return [] }
+  })
+
+  useEffect(() => {
+    try { localStorage.setItem("pm_trades", JSON.stringify(trades)) } catch {}
+  }, [trades])
+
+  const onToggleMain = (pair, groupId, itemId) => {
+    setState(prev => ({ ...prev, [pair]: { ...prev[pair], selMain: { ...prev[pair].selMain, [groupId]: prev[pair].selMain[groupId] === itemId ? null : itemId } } }))
+  }
+
+  const onToggleMod = (pair, modId) => {
+    setState(prev => ({ ...prev, [pair]: { ...prev[pair], selMods: { ...prev[pair].selMods, [modId]: !prev[pair].selMods[modId] } } }))
+  }
+
+  const resetPair = (pair) => setState(prev => ({ ...prev, [pair]: { selMain: {}, selMods: {} } }))
+
+  const cs = state[activePair]
+  const score = calcScore(cs.selMain, cs.selMods)
+  const si = getScoreInfo(score)
+  const color = PAIR_CONFIG[activePair].color
+  const activeG = GROUPS_DATA.find(g => g.id === activeGroup)
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#020817", color: "#f1f5f9", display: "flex", flexDirection: "column" }}>
+      {showJournal && <JournalView trades={trades} onClose={() => setShowJournal(false)} onDelete={i => setTrades(prev => prev.filter((_, idx) => idx !== i))} />}
+      {showLog && (
+        <LogModal
+          pair={PAIR_CONFIG[showLog].pair}
+          pairColor={PAIR_CONFIG[showLog].color}
+          score={calcScore(state[showLog].selMain, state[showLog].selMods)}
+          confs={getCheckedConfs(state[showLog].selMain, state[showLog].selMods)}
+          entryModel={getEntryModel(state[showLog].selMain)}
+          onClose={() => setShowLog(null)}
+          onSave={trade => { setTrades(prev => [...prev, trade]); setShowLog(null); resetPair(showLog) }}
+        />
+      )}
+
+      <div style={{ maxWidth: 520, margin: "0 auto", width: "100%", display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+
+        {/* Header */}
+        <div style={{ padding: "12px 12px 0", background: "#030d1c", borderBottom: "1px solid #0F172A" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div>
+              <div style={{ fontSize: 9, color: "#D4A017", letterSpacing: "0.2em", textTransform: "uppercase", fontWeight: 700 }}>● PIP MERCHANT</div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: "#f8fafc", letterSpacing: "-0.02em" }}>Confluence Scorer</div>
+            </div>
+            <button onClick={() => setShowJournal(true)}
+              style={{ background: "#0F172A", border: "1px solid #334155", color: "#94a3b8", padding: "7px 11px", borderRadius: 7, cursor: "pointer", fontFamily: "inherit", fontSize: 10, fontWeight: 600 }}>
+              📋 Journal ({trades.length})
+            </button>
+          </div>
+
+          {/* Pair tabs with score */}
+          <div style={{ display: "flex", alignItems: "stretch" }}>
+            {Object.entries(PAIR_CONFIG).map(([key, val]) => {
+              const ps = calcScore(state[key].selMain, state[key].selMods)
+              const psi = getScoreInfo(ps)
+              const isActive = activePair === key
+              return (
+                <button key={key} onClick={() => setActivePair(key)}
+                  style={{ flex: 1, padding: "8px 6px", background: isActive ? `${val.color}08` : "transparent", border: "none", borderBottom: isActive ? `2px solid ${val.color}` : "2px solid transparent", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: isActive ? val.color : "#475569", letterSpacing: "0.04em" }}>{val.pair}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                      <span style={{ fontSize: 20, fontWeight: 900, color: isActive ? psi.color : "#334155", lineHeight: 1 }}>{ps}</span>
+                      {ps !== 0 && <span style={{ fontSize: 8, fontWeight: 700, color: psi.color, background: `${psi.color}22`, padding: "2px 5px", borderRadius: 3, letterSpacing: "0.04em" }}>{psi.label}</span>}
+                    </div>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Group tabs */}
+        <div style={{ display: "flex", borderBottom: "1px solid #1E293B", background: "#050e1c" }}>
+          {[...GROUPS_DATA, { id: -1, label: "Bonuses", full: "Bonuses" }, { id: -2, label: "Risks", full: "Risks" }, { id: 0, label: "Summary", full: "Summary" }].map(g => {
+            const gSelId = cs.selMain[g.id]
+            const gPts = g.items ? ((gSelId ? (g.items.find(i => i.id === gSelId)?.points || 0) : 0) + (g.mods||[]).reduce((a, m) => cs.selMods[m.id] ? a + m.points : a, 0))
+              : g.id === -1 ? GROUPS_DATA.flatMap(gr => (gr.mods||[]).filter(m => m.points > 0)).reduce((a,m) => cs.selMods[m.id] ? a+m.points : a, 0)
+              : g.id === -2 ? GROUPS_DATA.flatMap(gr => (gr.mods||[]).filter(m => m.points < 0)).reduce((a,m) => cs.selMods[m.id] ? a+m.points : a, 0)
+              : 0
+            const active = activeGroup === g.id
+            return (
+              <button key={g.id} onClick={() => setActiveGroup(g.id)}
+                style={{ flex: 1, padding: "7px 2px", background: active ? "#0c1524" : "transparent", border: "none", borderBottom: active ? `2px solid ${color}` : "2px solid transparent", color: active ? color : "#475569", cursor: "pointer", fontFamily: "inherit", textAlign: "center" }}>
+                <div style={{ fontSize: 10, fontWeight: 700 }}>{g.label}</div>
+                {gPts !== 0 && <div style={{ fontSize: 9, fontWeight: 900, color: gPts > 0 ? "#34d399" : "#f87171", marginTop: 1 }}>{gPts > 0 ? "+" : ""}{gPts}</div>}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Group content */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "8px 10px" }}>
+          {activeGroup === 0 ? (
+            <SummaryView cs={cs} color={color} score={score} />
+          ) : activeGroup === -1 ? (
+            <AllModsView type="bonus" cs={cs} color={color} onToggleMod={(mId) => onToggleMod(activePair, mId)} />
+          ) : activeGroup === -2 ? (
+            <AllModsView type="risk" cs={cs} color={color} onToggleMod={(mId) => onToggleMod(activePair, mId)} />
+          ) : (
+            activeG && <GroupPanel g={activeG} color={color} selMain={cs.selMain} selMods={cs.selMods} onToggleMain={(gId, iId) => onToggleMain(activePair, gId, iId)} onToggleMod={(mId) => onToggleMod(activePair, mId)} />
+          )}
+        </div>
+
+        {/* Score footer */}
+        <div style={{ background: si.bg, borderTop: `2px solid ${si.border}`, padding: "10px 12px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <div>
+              <div style={{ fontSize: 9, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 600 }}>Total Score</div>
+              <div style={{ fontSize: 44, fontWeight: 900, color: si.color, lineHeight: 1 }}>{score}</div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: si.color, background: `${si.color}22`, padding: "6px 14px", borderRadius: 7, marginBottom: 5 }}>
+                {si.emoji} {si.label}
+              </div>
+              <div style={{ fontSize: 8.5, color: "#64748b", lineHeight: 1.8, fontWeight: 500 }}>
+                <span style={{ color: "#6B7280" }}>&lt;40 No alert</span>  ·  <span style={{ color: "#F59E0B" }}>40–59 Monitor</span>  ·  <span style={{ color: "#3B82F6" }}>60–79 Trade</span>  ·  <span style={{ color: "#10B981" }}>80+ Call</span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 7 }}>
+            <button onClick={() => setShowLog(activePair)}
+              style={{ flex: 2, padding: "10px 0", background: color, border: "none", color: "#fff", borderRadius: 7, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 700, letterSpacing: "0.02em" }}>
+              + Log Trade
+            </button>
+            <button onClick={() => resetPair(activePair)}
+              style={{ flex: 1, padding: "10px 0", background: "transparent", border: "1px solid #1E293B", color: "#475569", borderRadius: 7, cursor: "pointer", fontFamily: "inherit", fontSize: 10 }}>
+              Reset
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  )
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />)
+</script>
+</body>
+</html>
